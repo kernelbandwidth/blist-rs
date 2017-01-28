@@ -53,6 +53,15 @@ enum Color {
     Black,
 }
 
+impl Color {
+    fn flip(&self) -> Color {
+        match *self {
+            Color::Black => Color::Red,
+            Color::Red => Color::Black,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct MapNode {
     loc: usize,
@@ -173,12 +182,12 @@ impl<T> TList<T> where T: Sized {
         while let Some(node_loc) = build_stack.pop() {
             let mut node = Node::new_leaf(data[node_loc.node_idx].clone(), node_loc.color);
 
-            if let Some((loc, count)) = Self::prepare_left_child(&mut build_stack, &node_loc, data) {
+            if let Some((loc, count)) = Self::prepare_left_child(&mut build_stack, &node_loc) {
                 node.left = Some(loc);
                 node.left_count = count;
             }
 
-            if let Some((loc, count)) = Self::prepare_right_child(&mut build_stack, &node_loc, data) {
+            if let Some((loc, count)) = Self::prepare_right_child(&mut build_stack, &node_loc) {
                 node.right = Some(loc);
                 node.right_count = count;
             }
@@ -209,49 +218,114 @@ impl<T> TList<T> where T: Sized {
     }
 
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index >= self.len() {
-            return None;
-        }
+        let target_idx = match self.search(index) {
+            Some(idx) => idx,
+            None => return None,
+        };
 
-        let mut current_node = match self.node_list[self.root_idx] {
+        let node = match self.node_list[target_idx] {
             Some(ref node) => node,
             None => return None,
         };
 
-        let mut loc = current_node.left_count;
-        
-        while index != loc {
-            if loc < index { // go right
-                let right_idx = match current_node.right {
-                    Some(idx) => idx,
-                    None => return None,
-                };
-
-                current_node = match self.node_list[right_idx] {
-                    Some(ref node) => node,
-                    None => return None,
-                };
-
-                loc += current_node.left_count + 1;
-            } else { // go left
-                let left_idx = match current_node.left {
-                    Some(idx) => idx,
-                    None => return None,
-                };
-
-                current_node = match self.node_list[left_idx] {
-                    Some(ref node) => node,
-                    None => return None,
-                };
-
-                loc -= current_node.right_count + 1;
-            }
-        }
-
-        Some(&current_node.data)
+        Some(&node.data)
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        let target_idx = match self.search(index) {
+            Some(idx) => idx,
+            None => return None,
+        };
+
+        let node = match self.node_list[target_idx] {
+            Some(ref mut node) => node,
+            None => return None
+        };
+
+        Some(&mut node.data)
+    }
+
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        if index >= self.len() {
+            return None;
+        }
+
+        unimplemented!()
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len() == 0 {
+            None
+        } else {
+            let loc = self.len() - 1;
+            self.remove(loc)
+        }
+    }
+
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
+            tree: self,
+            loc: 0
+        }
+    }
+
+    pub fn traverse<F>(&mut self, f: &F) where F: Fn(&T) -> &T {
+        let len = self.len();
+
+        for i in 0..len {
+            let mut old_entry = self.get(i);
+            let mut new_entry = old_entry.map(f);
+            mem::swap(&mut old_entry, &mut new_entry);
+        }
+    }
+
+    pub fn into_iter(self) -> IntoIter<T> {
+        let iter = IntoIter {
+            tree: self,
+            traversal_list: Vec::new(),
+        };
+        unimplemented!()
+    }
+
+    // Private auxillary functions for implementing LLRB semantics
+    fn left_rotate(&mut self, elem_index: usize) {
+
+    }
+
+    fn right_rotate(&mut self, elem_index: usize) {
+
+    }
+
+    fn color_flip(&mut self, elem_index: usize) {
+        if elem_index > self.len() {
+            return;
+        }
+
+        let (left, right) = {
+            match self.node_list[elem_index] {
+                Some(ref mut node) => {
+                    node.color = node.color.flip();
+                    (node.left, node.right)
+                },
+                None => return,
+            }
+        };
+
+        if let Some(left_idx) = left {
+            if let Some(ref mut lnode) = self.node_list[left_idx] {
+                lnode.color = lnode.color.flip();
+            }
+        }
+
+        if let Some(right_idx) = right {
+            if let Some(ref mut rnode) = self.node_list[right_idx] {
+                rnode.color = rnode.color.flip();
+            }
+        }
+    }
+
+    #[inline]
+    fn search(&self, index: usize) -> Option<usize> {
         if index > self.len() {
             return None;
         }
@@ -296,69 +370,12 @@ impl<T> TList<T> where T: Sized {
             }
         }
 
-        let node = match self.node_list[map_node.loc] {
-            Some(ref mut node) => node,
-            None => return None
-        };
-
-        Some(&mut node.data)
-    }
-
-    pub fn remove(&mut self, index: usize) -> Option<T> {
-        if index >= self.len() {
-            return None;
-        }
-
-        unimplemented!()
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.len() == 0 {
-            None
-        } else {
-            let loc = self.len() - 1;
-            self.remove(loc)
-        }
-    }
-
-    pub fn iter(&self) -> Iter<T> {
-        let zipper_cap = self.len() >> 1;
-        Iter {
-            tree: self,
-            zipper: Vec::with_capacity(zipper_cap),
-            loc: 0
-        }
-    }
-
-    pub fn traverse<F>(&mut self, f: &F) where F: Fn(&T) -> &T {
-        let len = self.len();
-
-        for i in 0..len {
-            let mut old_entry = self.get(i);
-            let mut new_entry = old_entry.map(f);
-            mem::swap(&mut old_entry, &mut new_entry);
-        }
-    }
-
-    pub fn into_iter(self) -> IntoIter<T> {
-        IntoIter {
-            tree: self,
-            loc: 0,
-        }
-    }
-
-    // Private auxillary functions for implementing LLRB semantics
-    fn left_rotate(&mut self, elem_index: usize) {
-
-    }
-
-    fn right_rotate(&mut self, elem_index: usize) {
+        Some(map_node.loc)
 
     }
 
     #[inline]
-    fn prepare_left_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U]) 
-        -> Option<(usize, usize)> where U: Sized + Clone {
+    fn prepare_left_child(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc) -> Option<(usize, usize)> {
 
         if loc_node.left_edge >= loc_node.node_idx {
             return None;
@@ -380,8 +397,7 @@ impl<T> TList<T> where T: Sized {
     }
 
     #[inline]
-    fn prepare_right_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U])
-        -> Option<(usize, usize)> where U: Sized + Clone {
+    fn prepare_right_child(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc) -> Option<(usize, usize)> {
         
             if loc_node.right_edge <= loc_node.node_idx + 1 {
                 return None;
@@ -406,7 +422,6 @@ impl<T> TList<T> where T: Sized {
 
 pub struct Iter<'a, T: 'a> {
     tree: &'a TList<T>,
-    zipper: Vec<usize>,
     loc: usize,
 }
 
@@ -435,9 +450,15 @@ impl<'a, T> Iterator for Iter<'a, T> where T: 'a {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> where T: 'a {}
 
+// The IntoIter will destroy the LLRB invariants as it consumes the
+// tree. It pre-calculates the order of node traversal on construction
+// and produces values by memory swapping 'None' values into the node_list
+// slots similar to a deletion process, but without fixing up the tree
+// since the affine type-system ensures the tree is inacessible to outside
+// code and is dropped when the IntoIter goes out of scope.
 pub struct IntoIter<T> {
     tree: TList<T>,
-    loc: usize,
+    traversal_list: Vec<usize>,
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -445,6 +466,11 @@ impl<T> Iterator for IntoIter<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         unimplemented!()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let exact = self.tree.len() - self.traversal_list.len();
+        (exact, Some(exact))
     }
 }
 
@@ -481,26 +507,26 @@ mod tests {
             node_idx: test_data.len() >> 1,
         };
 
-        let left_of_root = TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc, &test_data);
+        let left_of_root = TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((2, 5)), left_of_root);
 
         let next_left_loc = build_stack.pop().unwrap();
         assert_eq!(2, next_left_loc.node_idx);
 
-        let next_left = TList::<usize>::prepare_left_child(&mut build_stack, &next_left_loc, &test_data);
+        let next_left = TList::<usize>::prepare_left_child(&mut build_stack, &next_left_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((1, 2)), next_left);
 
         let left_2_loc = build_stack.pop().unwrap();
         assert_eq!(1, left_2_loc.node_idx);
-        let left_2 = TList::<usize>::prepare_left_child(&mut build_stack, &left_2_loc, &test_data);
+        let left_2 = TList::<usize>::prepare_left_child(&mut build_stack, &left_2_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((0, 1)), left_2);
 
         let left_final_loc = build_stack.pop().unwrap();
         assert_eq!(0, left_final_loc.node_idx);
-        let left_final = TList::<usize>::prepare_left_child(&mut build_stack, &left_final_loc, &test_data);
+        let left_final = TList::<usize>::prepare_left_child(&mut build_stack, &left_final_loc);
         assert_eq!(0, build_stack.len());
         assert_eq!(None, left_final);
     }
@@ -516,25 +542,25 @@ mod tests {
             node_idx: test_data.len() >> 1,
         };
 
-        let right_of_root = TList::<usize>::prepare_right_child(&mut build_stack, &root_node_loc, &test_data);
+        let right_of_root = TList::<usize>::prepare_right_child(&mut build_stack, &root_node_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((7, 4)), right_of_root);
 
         let next_right_loc = build_stack.pop().unwrap();
         assert_eq!(7, next_right_loc.node_idx);
-        let right_2 = TList::<usize>::prepare_right_child(&mut build_stack, &next_right_loc, &test_data);
+        let right_2 = TList::<usize>::prepare_right_child(&mut build_stack, &next_right_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((8, 2)), right_2);
 
         let right_2_loc = build_stack.pop().unwrap();
         assert_eq!(8, right_2_loc.node_idx);
-        let right_2 = TList::<usize>::prepare_right_child(&mut build_stack, &right_2_loc, &test_data);
+        let right_2 = TList::<usize>::prepare_right_child(&mut build_stack, &right_2_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((9, 1)), right_2);
 
         let right_final_loc = build_stack.pop().unwrap();
         assert_eq!(9, right_final_loc.node_idx);
-        let right_final = TList::<usize>::prepare_right_child(&mut build_stack, &right_final_loc, &test_data);
+        let right_final = TList::<usize>::prepare_right_child(&mut build_stack, &right_final_loc);
         assert_eq!(0, build_stack.len());
         assert_eq!(None, right_final);
     }
@@ -550,15 +576,15 @@ mod tests {
                 node_idx: test_data.len() >> 1,
         };
 
-        TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc, &test_data);
+        TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc);
         let idx_2_loc = build_stack.pop().unwrap();
-        let idx_3 = TList::<usize>::prepare_right_child(&mut build_stack, &idx_2_loc, &test_data);
+        let idx_3 = TList::<usize>::prepare_right_child(&mut build_stack, &idx_2_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((3, 2)), idx_3);
 
         let idx_4_loc = build_stack.pop().unwrap();
-        let idx_4 = TList::<usize>::prepare_right_child(&mut build_stack, &idx_4_loc, &test_data);
-        let idx_3_left = TList::<usize>::prepare_left_child(&mut build_stack, &idx_4_loc, &test_data);
+        let idx_4 = TList::<usize>::prepare_right_child(&mut build_stack, &idx_4_loc);
+        let idx_3_left = TList::<usize>::prepare_left_child(&mut build_stack, &idx_4_loc);
         assert_eq!(1, build_stack.len());
         assert_eq!(Some((4, 1)), idx_4);
         assert_eq!(None, idx_3_left);
@@ -575,8 +601,8 @@ mod tests {
                 node_idx: test_data.len() >> 1,
         };
 
-        TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc, &test_data);
-        TList::<usize>::prepare_right_child(&mut build_stack, &root_node_loc, &test_data);
+        TList::<usize>::prepare_left_child(&mut build_stack, &root_node_loc);
+        TList::<usize>::prepare_right_child(&mut build_stack, &root_node_loc);
         assert_eq!(2, build_stack.len());
         assert_eq!(Some(NodeLoc {
             color: Color::Red,
@@ -595,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_node_layout() {
-        let mut test_data: Vec<usize> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let test_data: Vec<usize> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
         let test_tree = TList::<usize>::from_data(&test_data);
         assert_eq!(test_tree.root_idx, 5);
@@ -635,7 +661,7 @@ mod tests {
         // Node value 3, has right 4
         expected_nodes.push(Node {
             data:3usize,
-            color: Color::Red,
+            color: Color::Black,
             left: None,
             right: Some(4),
             left_count: 0,
@@ -645,7 +671,7 @@ mod tests {
         // Node value 4, has no children
         expected_nodes.push(Node {
             data: 4usize,
-            color: Color::Black,
+            color: Color::Red,
             left: None,
             right: None,
             left_count: 0,
@@ -705,7 +731,7 @@ mod tests {
         expected_nodes.iter().zip(test_tree.node_list.iter()).map(|(expect, r)| {
             let r_test = r.clone().unwrap();
             assert_eq!(expect.data, r_test.data);
-            //assert_eq!(expect.color, r_test.color);
+            assert_eq!(expect.color, r_test.color);
             assert_eq!(expect.left, r_test.left);
             assert_eq!(expect.right, r_test.right);
             assert_eq!(expect.left_count, r_test.left_count);
