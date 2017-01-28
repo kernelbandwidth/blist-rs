@@ -324,7 +324,7 @@ impl<T> TList<T> where T: Sized {
                     None => return None,
                 };
 
-                loc += map_node.left_count;
+                loc += map_node.left_count + 1;
 
             } else { // go left
                 let left_idx = match map_node.left {
@@ -337,7 +337,7 @@ impl<T> TList<T> where T: Sized {
                     None => return None,
                 };
 
-                loc -= map_node.right_count;
+                loc -= map_node.right_count + 1;
             }
         }
 
@@ -740,6 +740,21 @@ mod test {
 
         for i in 0..10000 {
             assert_eq!(Some(&test_data[i]), test_tree.get(i));
+        }
+    }
+
+    #[test]
+    fn test_get_mut_randomized() {
+        let mut test_data: Vec<i32> = Vec::with_capacity(10000);
+        let mut rng = rand::thread_rng();
+        for _ in 0..10000 {
+            test_data.push(rng.gen::<i32>());
+        }
+
+        let mut test_tree = TList::<i32>::from_data(&test_data);
+
+        for i in 0..10000 {
+            assert_eq!(Some(&mut test_data[i]), test_tree.get_mut(i));
         }
     }
 }
