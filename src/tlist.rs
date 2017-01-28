@@ -34,6 +34,8 @@
 // Implemented internally using a Vec and indexes
 // in an Arena-like fashion.
 
+use std::mem;
+
 const INITIAL_SIZE: usize = 256; // Initial number of nodes allocated by default
 const DEFAULT_STACK_DEPTH: usize = 64;
 
@@ -186,53 +188,6 @@ impl<T> TList<T> where T: Sized {
 
         index_tree
     }
-
-    #[inline]
-    fn prepare_left_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U]) 
-        -> Option<(usize, usize)> where U: Sized + Clone {
-
-        if loc_node.left_edge >= loc_node.node_idx {
-            return None;
-        }
-
-        let new_left_loc = loc_node.left_edge + ((loc_node.node_idx - loc_node.left_edge) >> 1);
-        let new_loc_node = NodeLoc {
-            color: match loc_node.color {
-                Color::Black => Color::Red,
-                Color::Red => Color::Black,
-            },
-            left_edge: loc_node.left_edge,
-            right_edge: loc_node.node_idx,
-            node_idx: new_left_loc,
-        };
-
-        build_stack.push(new_loc_node);
-        Some((new_left_loc, loc_node.node_idx - loc_node.left_edge))
-    }
-
-    #[inline]
-    fn prepare_right_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U])
-        -> Option<(usize, usize)> where U: Sized + Clone {
-        
-            if loc_node.right_edge <= loc_node.node_idx + 1 {
-                return None;
-            }
-
-            let new_left_edge = loc_node.node_idx + 1;
-            let new_right_loc = loc_node.node_idx + ((loc_node.right_edge - loc_node.node_idx) >> 1);
-            let new_loc = NodeLoc {
-                color: match loc_node.color {
-                    Color::Black => Color::Red,
-                    Color::Red => Color::Black,
-                },
-                left_edge: new_left_edge,
-                right_edge: loc_node.right_edge,
-                node_idx: new_right_loc,
-            };
-
-            build_stack.push(new_loc);
-            Some((new_right_loc, loc_node.right_edge - loc_node.node_idx - 1))
-        }
     
     pub fn insert(&mut self, elem: T, index: usize) {
         let node_slot = match self.free_list.pop() {
@@ -375,10 +330,13 @@ impl<T> TList<T> where T: Sized {
         }
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<T> {
-        IterMut {
-            tree: self,
-            loc: 0,
+    pub fn traverse<F>(&mut self, f: &F) where F: Fn(&T) -> &T {
+        let len = self.len();
+
+        for i in 0..len {
+            let mut old_entry = self.get(i);
+            let mut new_entry = old_entry.map(f);
+            mem::swap(&mut old_entry, &mut new_entry);
         }
     }
 
@@ -397,6 +355,53 @@ impl<T> TList<T> where T: Sized {
     fn right_rotate(&mut self, elem_index: usize) {
 
     }
+
+    #[inline]
+    fn prepare_left_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U]) 
+        -> Option<(usize, usize)> where U: Sized + Clone {
+
+        if loc_node.left_edge >= loc_node.node_idx {
+            return None;
+        }
+
+        let new_left_loc = loc_node.left_edge + ((loc_node.node_idx - loc_node.left_edge) >> 1);
+        let new_loc_node = NodeLoc {
+            color: match loc_node.color {
+                Color::Black => Color::Red,
+                Color::Red => Color::Black,
+            },
+            left_edge: loc_node.left_edge,
+            right_edge: loc_node.node_idx,
+            node_idx: new_left_loc,
+        };
+
+        build_stack.push(new_loc_node);
+        Some((new_left_loc, loc_node.node_idx - loc_node.left_edge))
+    }
+
+    #[inline]
+    fn prepare_right_child<U>(build_stack: &mut Vec<NodeLoc>, loc_node: &NodeLoc, data: &[U])
+        -> Option<(usize, usize)> where U: Sized + Clone {
+        
+            if loc_node.right_edge <= loc_node.node_idx + 1 {
+                return None;
+            }
+
+            let new_left_edge = loc_node.node_idx + 1;
+            let new_right_loc = loc_node.node_idx + ((loc_node.right_edge - loc_node.node_idx) >> 1);
+            let new_loc = NodeLoc {
+                color: match loc_node.color {
+                    Color::Black => Color::Red,
+                    Color::Red => Color::Black,
+                },
+                left_edge: new_left_edge,
+                right_edge: loc_node.right_edge,
+                node_idx: new_right_loc,
+            };
+
+            build_stack.push(new_loc);
+            Some((new_right_loc, loc_node.right_edge - loc_node.node_idx - 1))
+        }
 }
 
 pub struct Iter<'a, T: 'a> {
@@ -409,7 +414,17 @@ impl<'a, T> Iterator for Iter<'a, T> where T: 'a {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
+        // naive iterator takes O(N log N) to complete
+        // a more efficient implementation would be to
+        // pre-compute the list of node indexes to 
+        // traverse in order.
+        if self.loc >= self.tree.len() {
+            return None;
+        }
+
+        let nxt = self.tree.get(self.loc);
+        self.loc += 1;
+        nxt
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -419,19 +434,6 @@ impl<'a, T> Iterator for Iter<'a, T> where T: 'a {
 }
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> where T: 'a {}
-
-pub struct IterMut<'a, T: 'a> {
-    tree: &'a mut TList<T>,
-    loc: usize,
-}
-
-impl<'a, T> Iterator for IterMut<'a, T> where T: 'a {
-    type Item = &'a mut T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
-    }
-}
 
 pub struct IntoIter<T> {
     tree: TList<T>,
@@ -447,7 +449,7 @@ impl<T> Iterator for IntoIter<T> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     extern crate rand;
 
     use super::{TList, Node, NodeLoc, Color, DEFAULT_STACK_DEPTH};
@@ -757,4 +759,21 @@ mod test {
             assert_eq!(Some(&mut test_data[i]), test_tree.get_mut(i));
         }
     }
+
+    #[test]
+    fn test_iter_rand() {
+        let mut test_data: Vec<i32> = Vec::with_capacity(10000);
+        let mut rng = rand::thread_rng();
+        for _ in 0..10000 {
+            test_data.push(rng.gen::<i32>());
+        }
+
+        let test_list = TList::<i32>::from_data(&test_data);
+        let test_iter = test_list.iter();
+        test_iter
+            .enumerate()
+            .map(|(idx, data_val)| assert_eq!(&test_data[idx], data_val))
+            .collect::<Vec<()>>();
+    }
+
 }
