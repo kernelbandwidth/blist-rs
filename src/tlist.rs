@@ -288,12 +288,110 @@ impl<T> TList<T> where T: Sized {
     }
 
     // Private auxillary functions for implementing LLRB semantics
-    fn left_rotate(&mut self, elem_index: usize) {
+    fn left_rotate(&mut self, h_idx: usize) -> usize {
+        // Performs a left tree rotation of the node at h_idx, and returns
+        // the index of the new incoming node to be linked.
 
+        // Fetch the current parent node and pull it out as an owned object
+        // in the current scope. Replace it with a None so that the underlying
+        // vector doesn't reshuffle.
+        let mut h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
+
+        // left_rotate should not be called in a situation where either the h node
+        // or right child don't exist, but left_rotate can't guarentee that directly,
+        // so we go through the option matching, and replace the h_node and return if
+        // something is missing. In test, we panic since this should violate the invariants.
+        let (mut h_node, mut x_node_opt, x_idx) = match h_node_opt {
+            Some(mut h_node) => {
+                match h_node.right {
+                    Some(x_idx) => {
+                        let x_node = mem::replace(&mut self.node_list[x_idx], None);
+                        (h_node, x_node, x_idx)
+                    },
+                    None => {
+                        if cfg!(test) {
+                            panic!();
+                        }
+                        mem::swap(&mut self.node_list[h_idx], &mut Some(h_node));
+                        return h_idx;
+                    },
+                }
+            },
+            None => {
+                // If h_node is None, then we don't need to replace it, since we put
+                // a None in it's place above.
+                // Also, this really shouldn't happen.
+                if cfg!(test) {
+                    panic!();
+                }
+                return h_idx;
+            },
+        };
+
+        let mut x_node = match x_node_opt {
+            Some(x_node) => x_node,
+            None => {
+                if cfg!(test) {
+                    panic!();
+                }
+                mem::replace(&mut self.node_list[h_idx], Some(h_node));
+                return h_idx;
+            }
+        };
+
+        h_node.right = x_node.left;
+        x_node.left = Some(h_idx);
+        x_node.color = h_node.color;
+        h_node.color = Color::Red;
+
+        x_idx
     }
 
-    fn right_rotate(&mut self, elem_index: usize) {
+    fn right_rotate(&mut self, h_idx: usize) -> usize {
+        // follows the same logic as left_rotate, properly mirror reversed
+        let mut h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
 
+        let (mut h_node, mut x_node_opt, x_idx) = match h_node_opt {
+            Some(mut h_node) => {
+                match h_node.left {
+                    Some(x_idx) => {
+                        let x_node = mem::replace(&mut self.node_list[x_idx], None);
+                        (h_node, x_node, x_idx)
+                    },
+                    None => {
+                        if cfg!(test) {
+                            panic!();
+                        }
+                        mem::swap(&mut self.node_list[h_idx], &mut Some(h_node));
+                        return h_idx;
+                    },
+                }
+            },
+            None => {
+                if cfg!(test) {
+                    panic!();
+                }
+                return h_idx;
+            },
+        };
+
+        let mut x_node = match x_node_opt {
+            Some(x_node) => x_node,
+            None => {
+                if cfg!(test) {
+                    panic!();
+                }
+                mem::replace(&mut self.node_list[h_idx], Some(h_node));
+                return h_idx;
+            }
+        };
+
+        h_node.left = x_node.right;
+        x_node.right = Some(h_idx);
+        x_node.color = h_node.color;
+        h_node.color = Color::Red;
+
+        x_idx
     }
 
     fn color_flip(&mut self, elem_index: usize) {
@@ -802,4 +900,34 @@ mod tests {
             .collect::<Vec<()>>();
     }
 
+    #[test]
+    fn test_left_rotation() {
+
+    }
+
+    #[test]
+    fn test_right_rotation() {
+
+    }
+
+    #[test]
+    fn test_color_flip() {
+        let test_data = vec![0i32, 1i32, 2i32];
+        let mut test_list = TList::<i32>::from_data(&test_data); 
+        test_list.color_flip(1);
+        match test_list.node_list[0] {
+            Some(ref node) => assert_eq!(Color::Black, node.color),
+            None => panic!(),
+        };
+
+        match test_list.node_list[1] {
+            Some(ref node) => assert_eq!(Color::Red, node.color),
+            None => panic!(),
+        };
+
+        match test_list.node_list[2] {
+            Some(ref node) => assert_eq!(Color::Black, node.color),
+            None => panic!(),
+        };
+    }
 }
