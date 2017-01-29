@@ -288,6 +288,8 @@ impl<T> TList<T> where T: Sized {
     }
 
     // Private auxillary functions for implementing LLRB semantics
+
+    #[inline]
     fn left_rotate(&mut self, h_idx: usize) -> usize {
         // Performs a left tree rotation of the node at h_idx, and returns
         // the index of the new incoming node to be linked.
@@ -344,9 +346,18 @@ impl<T> TList<T> where T: Sized {
         x_node.color = h_node.color;
         h_node.color = Color::Red;
 
+        // Re-insert the nodes into their positions in the node list;
+        mem::replace(&mut self.node_list[h_idx], Some(h_node));
+        mem::replace(&mut self.node_list[x_idx], Some(x_node));
+
+        // if we did the rotation on the root node, we switch the root 
+        if (self.root_idx == h_idx) {
+            self.root_idx = x_idx;
+        }
         x_idx
     }
 
+    #[inline]
     fn right_rotate(&mut self, h_idx: usize) -> usize {
         // follows the same logic as left_rotate, properly mirror reversed
         let mut h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
@@ -391,9 +402,17 @@ impl<T> TList<T> where T: Sized {
         x_node.color = h_node.color;
         h_node.color = Color::Red;
 
+        mem::replace(&mut self.node_list[h_idx], Some(h_node));
+        mem::replace(&mut self.node_list[x_idx], Some(x_node));
+
+        if (self.root_idx == h_idx) {
+            self.root_idx = x_idx;
+        }
+
         x_idx
     }
 
+    #[inline]
     fn color_flip(&mut self, elem_index: usize) {
         if elem_index > self.len() {
             return;
@@ -901,13 +920,60 @@ mod tests {
     }
 
     #[test]
-    fn test_left_rotation() {
+    fn test_rotations() {
+        let mut test_node_list = Vec::<Option<Node<i32>>>::with_capacity(5);
+        test_node_list.push(Some(Node {
+            data: 0,
+            color: Color::Red,
+            left: None,
+            right: None,
+            left_count: 0,
+            right_count: 0,
+        }));
+        test_node_list.push(Some(Node {
+            data: 1,
+            color: Color::Black,
+            left: Some(0),
+            right: Some(3),
+            left_count: 1,
+            right_count: 3,
+        }));
+        test_node_list.push(Some(Node {
+            data: 2,
+            color: Color::Black,
+            left: None,
+            right: None,
+            left_count: 0,
+            right_count: 0,
+        }));
+        test_node_list.push(Some(Node {
+            data: 3,
+            color: Color::Red,
+            left: Some(2),
+            right: Some(4),
+            left_count: 1,
+            right_count: 1,
+        }));
+        test_node_list.push(Some(Node {
+            data: 4,
+            color: Color::Black,
+            left: None,
+            right: None,
+            left_count: 0,
+            right_count: 0,
+        }));
 
-    }
+        let free_list = Vec::new();
+        let mut test_tree = TList::<i32> {
+            node_list: test_node_list,
+            free_list: free_list,
+            root_idx: 1,
+            zipper: Vec::new(),
+        };
 
-    #[test]
-    fn test_right_rotation() {
-
+        assert_eq!(3, test_tree.left_rotate(1));
+        assert_eq!(3, test_tree.root_idx);
+        assert_eq!(1, test_tree.right_rotate(3));
     }
 
     #[test]
