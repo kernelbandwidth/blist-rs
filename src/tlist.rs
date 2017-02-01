@@ -279,7 +279,7 @@ impl<T> TList<T> where T: Sized {
     }
 
     pub fn insert_or_push(&mut self, elem: T, index: usize) {
-        if index > self.len() {
+        if index >= self.len() {
             self.push(elem);
         } else {
             self.insert(elem, index);
@@ -514,14 +514,14 @@ impl<T> TList<T> where T: Sized {
         // Fetch the current parent node and pull it out as an owned object
         // in the current scope. Replace it with a None so that the underlying
         // vector doesn't reshuffle.
-        let mut h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
+        let h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
 
         // left_rotate should not be called in a situation where either the h node
         // or right child don't exist, but left_rotate can't guarentee that directly,
         // so we go through the option matching, and replace the h_node and return if
         // something is missing. In test, we panic since this should violate the invariants.
-        let (mut h_node, mut x_node_opt, x_idx) = match h_node_opt {
-            Some(mut h_node) => {
+        let (mut h_node, x_node_opt, x_idx) = match h_node_opt {
+            Some(h_node) => {
                 match h_node.right {
                     Some(x_idx) => {
                         let x_node = mem::replace(&mut self.node_list[x_idx], None);
@@ -612,10 +612,10 @@ impl<T> TList<T> where T: Sized {
     #[inline]
     fn right_rotate(&mut self, h_idx: usize) -> usize {
         // follows the same logic as left_rotate, properly mirror reversed
-        let mut h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
+        let h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
 
-        let (mut h_node, mut x_node_opt, x_idx) = match h_node_opt {
-            Some(mut h_node) => {
+        let (mut h_node, x_node_opt, x_idx) = match h_node_opt {
+            Some(h_node) => {
                 match h_node.left {
                     Some(x_idx) => {
                         let x_node = mem::replace(&mut self.node_list[x_idx], None);
@@ -837,55 +837,6 @@ impl<T> TList<T> where T: Sized {
         };
         mem::replace(&mut self.node_list[insert_idx], Some(leaf));
         insert_idx
-    }
-
-    #[inline]
-    fn is_red(&self, node: Option<usize>) -> bool {
-        match node {
-            Some(idx) => match self.node_list[idx] {
-                Some(ref node) => node.color == Color::Red,
-                None => false,
-            },
-            None => false,
-        }
-    }
-
-    #[inline]
-    fn should_flip(&self, node_idx: usize) -> bool {
-        match self.node_list[node_idx] {
-            Some(ref node) => self.is_red(node.left) && self.is_red(node.right),
-            None => false,
-        }
-    }
-
-    #[inline]
-    fn should_rotate_left(&self, node_idx: usize) -> bool {
-        match self.node_list[node_idx] {
-            Some(ref node) => !self.is_red(node.left) && self.is_red(node.right),
-            None => false,
-        }
-    }
-
-    #[inline]
-    fn should_rotate_right(&self, node_idx: usize) -> bool {
-        match self.node_list[node_idx] {
-            Some(ref node) => {
-                let left_idx = match node.left {
-                    Some(lidx) => lidx,
-                    None => return false,
-                };
-                match self.node_list[left_idx] {
-                    Some(ref l_node) => {
-                        if l_node.color != Color::Red {
-                            return false;
-                        }
-                        self.is_red(l_node.left)
-                    },
-                    None => false,
-                }
-            },
-            None => false,
-        }
     }
 }
 
