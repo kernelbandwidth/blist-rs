@@ -338,13 +338,20 @@ impl<T> TList<T> where T: Sized {
         }
     }
 
-    pub fn traverse<F>(&mut self, f: &F) where F: Fn(&T) -> &T {
+    pub fn traverse<F>(&mut self, f: &F) where F: Fn(T) -> T {
         let len = self.len();
 
         for i in 0..len {
-            let mut old_entry = self.get(i);
-            let mut new_entry = old_entry.map(f);
-            mem::swap(&mut old_entry, &mut new_entry);
+            let search_idx = self.search(i);
+            let new_entry = self.search(i)
+                .and_then(|idx| mem::replace(&mut self.node_list[idx], None))
+                .map(|mut n| {
+                    n.data = {
+                        f(n.data)
+                    };
+                    n
+                });
+            search_idx.map(|idx| mem::replace(&mut self.node_list[idx], new_entry));
         }
     }
 
