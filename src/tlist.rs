@@ -186,87 +186,51 @@ impl<T> TList<T> where T: Sized {
         // Insert element into the node_list and get it's index
         let insert_idx = self.add_leaf(elem);
         
-        // Get the node currently at the target index
-        // panics if the index is not available
-        // copied from search() but with mutability to update
-        // sizes
-        
-        let target_idx = {
-            if index > self.len() {
-                return;
-            }
+        let mut target_rank = index;
+        let mut search_idx = self.root_idx;
 
-            let mut rank_idx = index;
-            let mut search_idx = self.root_idx;
+        loop {
+            self.node_list[search_idx]
+                .as_mut()
+                .map(|n| n.size += 1);
 
-            loop {
-                self.node_list[search_idx]
-                    .as_mut()
-                    .map(|n| n.size += 1);
-
-                let rank = self.get_child_size(search_idx, Dir::Left);
-            
-                if rank == rank_idx {
-                    break;
+            let rank = self.get_child_size(search_idx, Dir::Left);
+            if target_rank > rank { //attempt to insert on the right
+                match self.node_list[search_idx].as_ref().and_then(|n| n.right) {
+                    Some(new_idx) => {
+                        // Keep searching at the right sub-tree
+                        target_rank -= rank + 1;
+                        search_idx = new_idx;
+                        continue;
+                    },
+                    None => {
+                        // If there's no right child, then we've reached the largest
+                        // index value in the sub-tree, so we insert here.
+                        self.node_list[search_idx]
+                            .as_mut()
+                            .map(|n| n.right = Some(insert_idx));
+                        self.node_list[insert_idx]
+                            .as_mut()
+                            .map(|n| n.parent = Some(search_idx));
+                        break;
+                    },
                 }
-
-                search_idx = if rank_idx < rank {
-                    match self.get_child_idx(search_idx, Dir::Left) {
-                        Some(idx) => idx,
-                        None => {
-                            if cfg!(test) {
-                                panic!("No left child!")
-                            }
-                            return;
-                        },
+            } else { // attempt to insert on the left
+                match self.node_list[search_idx].as_ref().and_then(|n| n.left) {
+                    Some(new_idx) => {
+                        search_idx = new_idx;
+                        continue;
+                    },
+                    None => {
+                        self.node_list[search_idx]
+                            .as_mut()
+                            .map(|n| n.left = Some(insert_idx));
+                        self.node_list[insert_idx]
+                            .as_mut()
+                            .map(|n| n.parent = Some(search_idx));
+                        break;
                     }
-                } else {
-                    match self.get_child_idx(search_idx, Dir::Right) {
-                        Some(idx) => {
-                            rank_idx -= rank + 1;
-                            idx
-                        }
-                        None => {
-                            if cfg!(test) {
-                                panic!("No right child from {} getting index {}!", search_idx, index)
-                            }
-                            return;
-                        },
-                    }
-                };
-            }
-            search_idx
-        };
-        
-        // We insert the new node to the left of the target node
-        // If the left child is None, we insert there and proceed to
-        // the fix-up stage.
-        // If the left child is not None, then we go down the left
-        // link and take every right link until we encouter an empty
-        // right child and insert the leaf there.
-
-        match self.get_child_idx(target_idx, Dir::Left) {
-            Some(l_idx) => {
-                let mut prev_idx = l_idx;
-                let mut right_idx = self.get_child_idx(l_idx, Dir::Right);
-                while let Some(idx) = right_idx {
-                    prev_idx = idx;
-                    right_idx = self.get_child_idx(idx, Dir::Right);
-                    self.node_list[prev_idx]
-                        .as_mut()
-                        .map(|n| n.size += 1);
                 }
-                // At this point, right_idx is None, so prev_idx is a node with a free right child
-                self.node_list[prev_idx]
-                    .as_mut()
-                    .unwrap()
-                    .right = Some(insert_idx);
-            },
-            None => {
-                self.node_list[target_idx]
-                    .as_mut()
-                    .unwrap()
-                    .left = Some(insert_idx);
             }
         }
 
@@ -274,8 +238,17 @@ impl<T> TList<T> where T: Sized {
     }
 
     pub fn push(&mut self, elem: T) {
-        let loc = self.len();
-        self.insert(elem, loc);
+        // if the root is empty, insert into root
+        if self.len() == 0 {
+            let insert_idx = self.add_leaf(elem);
+            self.node_list[insert_idx]
+                .as_mut()
+                .map(|n| n.color = Color::Black);
+            self.root_idx = insert_idx;
+        } else {
+            let loc = self.len();
+            self.insert(elem, loc);
+        }
     }
 
     pub fn insert_or_push(&mut self, elem: T, index: usize) {
@@ -401,7 +374,7 @@ impl<T> TList<T> where T: Sized {
                     Some(ref node) => node.size,
                     None => {
                         if cfg!(test) {
-                            panic!()
+                            panic!("No node at listed child!")
                         }
                         return 0;
                     },
@@ -431,12 +404,7 @@ impl<T> TList<T> where T: Sized {
 
             let red_parent = match self.node_list[z_p] {
                 Some(ref node) => node.color == Color::Red,
-                None => {
-                    if cfg!(test) {
-                        panic!()
-                    }   
-                    break;
-                },
+                None => false,
             };
 
             if !red_parent {
@@ -444,7 +412,7 @@ impl<T> TList<T> where T: Sized {
             }
         
             // Root is always black by construction, so a grandparent of z exists
-            let gp_idx = self.get_grandparent_idx(z_idx).unwrap();
+            let gp_idx = self.get_grandparent_idx(z_idx).expect("Grandparent should exist!");
 
             // Get the uncle of z, y as an index
             let y_idx = {
@@ -464,7 +432,18 @@ impl<T> TList<T> where T: Sized {
                 .map(|n| n.color);
 
             if Some(Color::Red) == y_color {
-                self.color_flip(gp_idx);
+                self.node_list[y_idx.unwrap()]
+                    .as_mut()
+                    .map(|n| n.color = Color::Black);
+                
+                self.node_list[z_p]
+                    .as_mut()
+                    .map(|n| n.color = Color::Black);
+
+                self.node_list[gp_idx]
+                    .as_mut()
+                    .map(|n| n.color = Color::Red);
+
                 z_idx = gp_idx;
             } else {
                 let z_p_dir = {
@@ -485,8 +464,11 @@ impl<T> TList<T> where T: Sized {
 
                 if z_dir != z_p_dir {
                     // CLRS case 2 fall through to case 3 
-                    self.left_rotate(z_p);
                     z_idx = z_p;
+                    match z_p_dir {
+                        Dir::Left => self.left_rotate(z_idx),
+                        Dir::Right => self.right_rotate(z_idx),
+                    };
                 } 
                 // CLRS only case 3
                 self.get_parent_idx(z_idx)
@@ -497,7 +479,7 @@ impl<T> TList<T> where T: Sized {
                     Some(idx) => idx,
                     None => {
                         if cfg!(test) {
-                            panic!()
+                            panic!("Panic in Case 3!")
                         }
                         break;
                     }
@@ -505,18 +487,21 @@ impl<T> TList<T> where T: Sized {
                 self.node_list[n_gp].as_mut()
                     .map(|n| n.color = Color::Red);
 
-                self.right_rotate(gp_idx);
+                match z_p_dir {
+                    Dir::Left => self.right_rotate(gp_idx),
+                    Dir::Right => self.left_rotate(gp_idx),
+                };
             }
         }
 
+        // Root node must exist since we just inserted a value, so at least one node exists
         self.node_list[self.root_idx].as_mut().unwrap().color = Color::Black;
             
     }
 
     #[inline]
-    fn left_rotate(&mut self, h_idx: usize) -> usize {
-        // Performs a left tree rotation of the node at h_idx, and returns the new index
-        // of the entry node to the sub-tree
+    fn left_rotate(&mut self, h_idx: usize) {
+        // Performs a left tree rotation of the node at h_idx
 
         // Fetch the current parent node and pull it out as an owned object
         // in the current scope. Replace it with a None so that the underlying
@@ -527,19 +512,19 @@ impl<T> TList<T> where T: Sized {
         // or right child don't exist, but left_rotate can't guarentee that directly,
         // so we go through the option matching, and replace the h_node and return if
         // something is missing. In test, we panic since this should violate the invariants.
-        let (mut h_node, x_node_opt, x_idx) = match h_node_opt {
+        let (mut h_node, y_node_opt, y_idx) = match h_node_opt {
             Some(h_node) => {
                 match h_node.right {
-                    Some(x_idx) => {
-                        let x_node = mem::replace(&mut self.node_list[x_idx], None);
-                        (h_node, x_node, x_idx)
+                    Some(y_idx) => {
+                        let y_node = mem::replace(&mut self.node_list[y_idx], None);
+                        (h_node, y_node, y_idx)
                     },
                     None => {
                         if cfg!(test) {
-                            panic!();
+                            panic!("Panic in left rotation! No right child of {}", h_idx);
                         }
                         mem::swap(&mut self.node_list[h_idx], &mut Some(h_node));
-                        return h_idx;
+                        return;
                     },
                 }
             },
@@ -550,33 +535,47 @@ impl<T> TList<T> where T: Sized {
                 if cfg!(test) {
                     panic!();
                 }
-                return h_idx;
+                return;
             },
         };
 
-        let mut x_node = match x_node_opt {
-            Some(x_node) => x_node,
+        let mut y_node = match y_node_opt {
+            Some(y_node) => y_node,
             None => {
                 if cfg!(test) {
                     panic!();
                 }
                 mem::replace(&mut self.node_list[h_idx], Some(h_node));
-                return h_idx;
+                return;
             }
         };
 
-        h_node.right = x_node.left;
-        x_node.left = Some(h_idx);
-        x_node.color = h_node.color;
-        h_node.color = Color::Red;
+        h_node.right = y_node.left;
+        h_node.right.and_then(|n_idx| self.node_list[n_idx].as_mut())
+            .map(|mut n| n.parent = Some(h_idx));
+        y_node.parent = h_node.parent;
 
-        // Swap parent back-links
-        mem::swap(&mut x_node.parent, &mut h_node.parent);
+        match h_node.parent {
+            Some(p_idx) => {
+                self.node_list[p_idx]
+                    .as_mut()
+                    .map(|p_node| {
+                        if p_node.left == Some(h_idx) {
+                            p_node.left = Some(y_idx);
+                        } else {
+                            p_node.right = Some(y_idx);
+                        }
+                    });
+            },
+            None => self.root_idx = y_idx,
+        }
 
+        h_node.parent = Some(y_idx);
+        y_node.left = Some(h_idx);
         
         // Re-insert the nodes into their positions in the node list;
         mem::replace(&mut self.node_list[h_idx], Some(h_node));
-        mem::replace(&mut self.node_list[x_idx], Some(x_node));
+        mem::replace(&mut self.node_list[y_idx], Some(y_node));
 
         // reset size calculations
         // this has to be done after re-inserting to ensure child links work properly
@@ -589,35 +588,16 @@ impl<T> TList<T> where T: Sized {
         }
 
         {
-            let x_size = self.get_child_size(x_idx, Dir::Left) + self.get_child_size(x_idx, Dir::Right) + 1;
-            self.node_list[x_idx]
+            let y_size = self.get_child_size(y_idx, Dir::Left) + self.get_child_size(y_idx, Dir::Right) + 1;
+            self.node_list[y_idx]
                 .as_mut()
                 .unwrap()
-                .size = x_size;
+                .size = y_size;
         }
-
-        if let Some(xp_idx) = self.get_parent_idx(x_idx) {
-            self.node_list[xp_idx]
-                .as_mut()
-                .map(|n| {
-                    if n.left == Some(h_idx) {
-                        n.left = Some(x_idx);
-                    } else {
-                        n.right = Some(x_idx);
-                    }
-                });
-        }
-
-        // if we did the rotation on the root node, we switch the root 
-        if self.root_idx == h_idx {
-            self.root_idx = x_idx;
-        }
-
-        x_idx
     }
 
     #[inline]
-    fn right_rotate(&mut self, h_idx: usize) -> usize {
+    fn right_rotate(&mut self, h_idx: usize) {
         // follows the same logic as left_rotate, properly mirror reversed
         let h_node_opt = mem::replace(&mut self.node_list[h_idx], None);
 
@@ -633,7 +613,7 @@ impl<T> TList<T> where T: Sized {
                             panic!();
                         }
                         mem::swap(&mut self.node_list[h_idx], &mut Some(h_node));
-                        return h_idx;
+                        return;
                     },
                 }
             },
@@ -641,7 +621,7 @@ impl<T> TList<T> where T: Sized {
                 if cfg!(test) {
                     panic!();
                 }
-                return h_idx;
+                return;
             },
         };
 
@@ -652,17 +632,33 @@ impl<T> TList<T> where T: Sized {
                     panic!();
                 }
                 mem::replace(&mut self.node_list[h_idx], Some(h_node));
-                return h_idx;
+                return;
             }
         };
 
         h_node.left = x_node.right;
+        h_node.left.and_then(|n_idx| self.node_list[n_idx].as_mut())
+            .map(|mut n| n.parent = Some(h_idx));
+        x_node.parent = h_node.parent;
+
+        match h_node.parent {
+            Some(p_idx) => {
+                self.node_list[p_idx]
+                    .as_mut()
+                    .map(|p_node| {
+                        if p_node.left == Some(h_idx) {
+                            p_node.left = Some(x_idx);
+                        } else {
+                            p_node.right = Some(x_idx);
+                        }
+                    });
+            },
+            None => self.root_idx = x_idx,
+        }
+
+        h_node.parent = Some(x_idx);
         x_node.right = Some(h_idx);
-        x_node.color = h_node.color;
-        h_node.color = Color::Red;
-
-        mem::swap(&mut h_node.parent, &mut x_node.parent);
-
+       
         mem::replace(&mut self.node_list[h_idx], Some(h_node));
         mem::replace(&mut self.node_list[x_idx], Some(x_node));
 
@@ -681,63 +677,12 @@ impl<T> TList<T> where T: Sized {
                 .unwrap()
                 .size = x_size;
         }
-
-        if let Some(xp_idx) = self.get_parent_idx(x_idx) {
-            self.node_list[xp_idx]
-                .as_mut()
-                .map(|n| {
-                    if n.left == Some(h_idx) {
-                        n.left = Some(x_idx);
-                    } else {
-                        n.right = Some(x_idx);
-                    }
-                });
-        }
-
-        if self.root_idx == h_idx {
-            self.root_idx = x_idx;
-        }
-
-        x_idx
-    }
-
-    #[inline]
-    fn color_flip(&mut self, elem_index: usize) {
-        if elem_index > self.len() {
-            return;
-        }
-
-        let (left, right) = {
-            match self.node_list[elem_index] {
-                Some(ref mut node) => {
-                    node.color = node.color.flip();
-                    (node.left, node.right)
-                },
-                None => return,
-            }
-        };
-
-        if let Some(left_idx) = left {
-            if let Some(ref mut lnode) = self.node_list[left_idx] {
-                lnode.color = lnode.color.flip();
-            }
-        }
-
-        if let Some(right_idx) = right {
-            if let Some(ref mut rnode) = self.node_list[right_idx] {
-                rnode.color = rnode.color.flip();
-            }
-        }
     }
 
     #[inline]
     fn search(&self, mut index: usize) -> Option<usize> {
         if index > self.len() {
             return None;
-        }
-
-        if index == self.root_idx {
-            return Some(self.root_idx);
         }
 
         let mut search_idx = self.root_idx;
@@ -878,7 +823,7 @@ impl<'a, T> Iterator for Iter<'a, T> where T: 'a {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> where T: 'a {}
 
-// The IntoIter will destroy the LLRB invariants as it consumes the
+// The IntoIter will destroy the RB invariants as it consumes the
 // tree. It pre-calculates the order of node traversal on construction
 // and produces values by memory swapping 'None' values into the node_list
 // slots similar to a deletion process, but without fixing up the tree
@@ -910,6 +855,34 @@ mod tests {
 
     use self::rand::Rng;
 
+    // Test helper functions
+    fn assert_color_invariants<T>(tree: &TList<T>) {
+        let mut queue = Vec::new();
+        queue.push((tree.root_idx, true));
+
+        while let Some((idx, should_be_black)) = queue.pop() {
+            if let Some(ref node) = *&tree.node_list[idx] {
+                if should_be_black {
+                    // If the node doesn't exist, it's implicitly Black, so we don't bother to test
+                    assert_eq!(node.color, Color::Black);
+                }
+                let child_should_be_black = match node.color {
+                    Color::Red => true,
+                    Color::Black => false,
+                };
+
+                if let Some(left) = node.left {
+                    queue.push((left, child_should_be_black));
+                }
+
+                if let Some(right) = node.right {
+                    queue.push((right, child_should_be_black));
+                }
+            }
+        }
+    }
+
+    // Tests
     #[test]
     fn build_from_data_test() {
         // Test that we don't crash...
@@ -922,6 +895,8 @@ mod tests {
             assert_eq!(Some(idx), node.map(|n| n.data));
             idx += 1;
         }
+
+        assert_color_invariants(&test_tree);
     }
 
     #[test]
@@ -1288,7 +1263,8 @@ mod tests {
             root_idx: 1,
         };
 
-        assert_eq!(3, test_tree.left_rotate(1));
+        assert_color_invariants(&test_tree);
+        test_tree.left_rotate(1);
         assert_eq!(3, test_tree.root_idx);
         {
             let nref = test_tree.node_list[test_tree.root_idx].clone();
@@ -1301,12 +1277,13 @@ mod tests {
             .map(|(expected, got)| assert_eq!(expected, *got))
             .collect::<Vec<()>>();
 
-        assert_eq!(1, test_tree.right_rotate(3));
         {
             let nref = test_tree.node_list[test_tree.root_idx].clone();
             assert_eq!(None, nref.unwrap().parent);
         }
 
+        test_tree.right_rotate(3);
+        assert_color_invariants(&test_tree);
         test_tree
             .iter()
             .enumerate()
@@ -1315,35 +1292,79 @@ mod tests {
     }
 
     #[test]
-    fn test_color_flip() {
-        let test_data = vec![0i32, 1i32, 2i32];
-        let mut test_list = TList::<i32>::from_data(&test_data); 
-        test_list.color_flip(1);
-        match test_list.node_list[0] {
-            Some(ref node) => assert_eq!(Color::Black, node.color),
-            None => panic!(),
-        };
-
-        match test_list.node_list[1] {
-            Some(ref node) => assert_eq!(Color::Red, node.color),
-            None => panic!(),
-        };
-
-        match test_list.node_list[2] {
-            Some(ref node) => assert_eq!(Color::Black, node.color),
-            None => panic!(),
-        };
-    }
-
-    #[test]
     fn test_insert() {
-        let test_data: Vec<usize> = vec![0, 1, 2, 3, 4, 6, 7, 8, 9];
+        let test_data: Vec<usize> = vec![0, 1, 3, 4, 5, 6, 7, 8, 9];
         let mut test_tree = TList::<usize>::from_data(&test_data);
-        test_tree.insert(5, 5);
+        test_tree.insert(2, 2);
         test_tree
             .iter()
             .enumerate()
             .map(|(expect, got)| assert_eq!(expect, *got))
             .collect::<Vec<()>>();
+        assert_color_invariants(&test_tree);
+    }
+
+    #[test]
+    fn test_insert_random() {
+        let mut rng = rand::thread_rng();
+        let size = rng.gen_range::<usize>(1000, 5000);
+        let mut test_list = TList::<i32>::with_capacity(size);
+        let mut test_vec = Vec::with_capacity(size);
+        test_list.push(size as i32);
+        assert_eq!(test_list.get(0), Some(&(size as i32)));
+        test_vec.push(size as i32);
+
+        for i in 0..(size - 1) {
+            let loc = rng.gen_range::<usize>(0, test_list.len());
+            test_list.insert(i as i32, loc);
+            test_vec.insert(loc, i as i32);
+        }
+
+        test_list.iter()
+            .zip(test_vec.iter())
+            .map(|(got, expected)| assert_eq!(got, expected))
+            .collect::<Vec<()>>();
+    }
+
+    #[test]
+    fn assert_color_invs_from_data_random() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let test_size = rng.gen_range::<usize>(100usize, 5000usize);
+            let mut test_data = Vec::with_capacity(test_size);
+            for i in 0..test_size {
+                test_data.push(i);
+            }
+
+            let test_list = TList::<usize>::from_data(&test_data);
+            assert_color_invariants(&test_list);
+        }
+    }
+
+    #[test]
+    fn assert_color_invs_insert_random() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..10 {
+            let test_size = rng.gen_range::<usize>(50usize, 200usize);
+            let mut test_data = Vec::with_capacity(test_size);
+            for i in 0..(test_size) {
+                test_data.push(i);
+            }
+
+            let mut test_list = TList::<usize>::from_data(&test_data);
+            for i in 0..(test_size) {
+                let insert_loc = rng.gen_range::<usize>(0, test_list.len());
+                test_list.insert(i, insert_loc);
+                assert_color_invariants(&test_list); // yes, really, we check invariants each time
+            }
+        }
+    }
+
+    #[test]
+    fn assert_color_invs_delete() {
+        let test_data = vec![0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
+        let mut test_list = TList::<i32>::from_data(&test_data);
+        assert_eq!(Some(3), test_list.remove(3));
+        assert_color_invariants(&test_list);
     }
 }
